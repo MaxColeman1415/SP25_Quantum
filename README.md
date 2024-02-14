@@ -1,0 +1,1 @@
+This is a senior design project focusing on researching the differences between a quantum machine learning model and a classical model.  This basis of this project is directly comparing Grover's algorithm (quantum) with the A* algorithm (classical).

@@ -1,0 +1,124 @@
+import hashlib
+import csv
+
+import numpy as np
+from qiskit import QuantumCircuit, transpile  # ,Aer,execute
+from qiskit_ibm_runtime import QiskitRuntimeService, Estimator, Options
+from qiskit.visualization import plot_histogram
+
+################
+# Import account
+################
+QiskitRuntimeService.save_account(channel="ibm_quantum", token="PLACEHOLDER FOR API TOKEN", overwrite=True)
+service = QiskitRuntimeService(channel="ibm_quantum")
+
+# Run on the least-busy backend you have access to
+# backend = service.least_busy(simulator=False, operational=True) <- ACTUAL QUANTUM, MAY TAKE A WHILE
+backend = service.get_backend('simulator_statevector')
+
+
+# set up quantum options
+options = Options()
+options.resilience_level = 1
+options.optimization_level = 3
+
+# Create an Estimator object
+estimator = Estimator(backend, options=options)  # seems to continue with the error, ignoring
+
+
+# load in the dataset of prehashed passwords
+def passhash_list(file):
+    prehashes = {}
+    with open(file, 'r', newline='', encoding='utf-8') as pass_file:
+        file_reader = csv.reader(pass_file)
+        for row in file_reader:
+            password, passhash = row
+            prehashes[passhash] = password
+
+    return prehashes
+
+
+# build a quantum oracle
+def oracle(circuit, target, qubits):
+    ancil_bit = max(qubits)
+    qubits_list = list(qubits)
+    target_bin = format(int(target, 16), f'0{len(target)*4}b')
+
+    for i, bit in enumerate(target_bin):
+        qubit_index = i  # Map bit position to qubit index directly
+        if bit == '0':
+            circuit.x(qubits[qubit_index])
+
+    # apply gates and phase flip
+    circuit.h(ancil_bit)
+    circuit.mcx(qubits_list[:1], ancil_bit)
+    circuit.h(ancil_bit)
+
+    # Revert any changes to qubits for next steps
+    for i, bit in enumerate(target_bin):
+        qubit_index = i
+        if bit == '0':
+            circuit.x(qubits[qubit_index])
+
+
+def hashpassword(password):
+    # hash a password to search
+    # targethash = hashlib.md5('password123'.encode()).hexdigest()
+    targethash = '123456'  # this was used for testing.
+
+    return targethash
+
+
+# Get the list of passwords and hash the test value
+passwords = passhash_list('rockyou_hashed.csv')
+test_hash = hashpassword('password123')
+
+
+# Build the quantum circuit
+qubit_count = len(test_hash) * 4  # represented in hexadecimal qubits
+qubit_count = qubit_count + 1  # add ancillary qubit for oracle
+quantum_circuit = QuantumCircuit(qubit_count)
+
+quantum_circuit.h(range(qubit_count))  # hadamard gates for superposition
+
+
+# preparing ancillary qubit
+ancillary_bit = qubit_count - 1  # aligning index to the added bit
+quantum_circuit.x(ancillary_bit)
+quantum_circuit.h(ancillary_bit)
+
+
+# running oracle
+oracle(quantum_circuit, test_hash, range(qubit_count))
+quantum_circuit.h(range(qubit_count))  # quantum diffusion
+quantum_circuit.measure_all()  # measuring qubits
+
+# run the circuit
+for i in range(10):
+    loaded_circuit = transpile(quantum_circuit, backend)
+    job = backend.run(loaded_circuit, shots=1024)
+    result = job.result()
+    counts = result.get_counts(quantum_circuit)
+
+    measured_state = max(counts, key=counts.get)
+    print(measured_state)
+
+
+
+'''
+# Running the circuit on quantum with observable measurements
+job = estimator.run([quantum_circuit]*observable_qubits, observables=observables, shots=100)
+result = job.result()
+counts = result.values
+
+
+# find the password state and get the password
+max_count = np.argmax(counts)
+password_state = format(max_count, '0{}b'.format(qubit_count))
+found_password = ''.join(reversed(password_state))
+
+if found_password:
+    print(f"Password {found_password} found in database")
+else:
+    print("Password not found :(")
+'''

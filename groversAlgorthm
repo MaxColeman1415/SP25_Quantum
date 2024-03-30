@@ -1,8 +1,10 @@
+# please install qiskit and qiskit_ibm_runtime using pip
+
 import hashlib
 import csv
 
 import numpy as np
-from qiskit import QuantumCircuit, transpile  # ,Aer,execute
+from qiskit import QuantumCircuit, transpile
 from qiskit_ibm_runtime import QiskitRuntimeService, Estimator, Options
 from qiskit.visualization import plot_histogram
 
@@ -91,9 +93,11 @@ quantum_circuit.h(ancillary_bit)
 # running oracle
 oracle(quantum_circuit, test_hash, range(qubit_count))
 quantum_circuit.h(range(qubit_count))  # quantum diffusion
-quantum_circuit.measure_all()  # measuring qubits
+quantum_circuit.measure_all()
 
 # run the circuit
+print(f"raw:  {test_hash}")
+print(f"goal: {format(int(test_hash, 16), f'0{len(test_hash)*4}b')}")
 for i in range(10):
     loaded_circuit = transpile(quantum_circuit, backend)
     job = backend.run(loaded_circuit, shots=1024)
@@ -101,24 +105,5 @@ for i in range(10):
     counts = result.get_counts(quantum_circuit)
 
     measured_state = max(counts, key=counts.get)
-    print(measured_state)
+    print(f"res{i}: {measured_state[:24]}")
 
-
-
-'''
-# Running the circuit on quantum with observable measurements
-job = estimator.run([quantum_circuit]*observable_qubits, observables=observables, shots=100)
-result = job.result()
-counts = result.values
-
-
-# find the password state and get the password
-max_count = np.argmax(counts)
-password_state = format(max_count, '0{}b'.format(qubit_count))
-found_password = ''.join(reversed(password_state))
-
-if found_password:
-    print(f"Password {found_password} found in database")
-else:
-    print("Password not found :(")
-'''

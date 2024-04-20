@@ -1,4 +1,4 @@
-# please install qiskit and qiskit_ibm_runtime using pip
+# please install qiskit and qiskit_ibm_runtime using pip before running the code!
 
 import hashlib
 import csv
@@ -8,24 +8,28 @@ from qiskit import QuantumCircuit, transpile
 from qiskit_ibm_runtime import QiskitRuntimeService, Estimator, Options
 from qiskit.visualization import plot_histogram
 
-################
-# Import account
-################
-QiskitRuntimeService.save_account(channel="ibm_quantum", token="PLACEHOLDER FOR API TOKEN", overwrite=True)
+##################
+# Import account #
+##################
+token = "PLACEHOLDER"  # change to token
+# TODO: change this to saving to a file and reading it later so it isn't hardcoded
+
+QiskitRuntimeService.save_account(channel="ibm_quantum", token=token, overwrite=True)
 service = QiskitRuntimeService(channel="ibm_quantum")
 
-# Run on the least-busy backend you have access to
+# Run on the least-busy backend you have access to - or a simulator for speed!
 # backend = service.least_busy(simulator=False, operational=True) <- ACTUAL QUANTUM, MAY TAKE A WHILE
-backend = service.get_backend('simulator_statevector')
+backend = service.get_backend('simulator_statevector')  # this is on a simulator backend limited to 32(?) qubits
 
 
-# set up quantum options
+# set up quantum options - want to play around with these a little
 options = Options()
 options.resilience_level = 1
 options.optimization_level = 3
 
-# Create an Estimator object
+# Create an Estimator object to run the circuit
 estimator = Estimator(backend, options=options)  # seems to continue with the error, ignoring
+# TODO: figure out the cause of the error and fix it
 
 
 # load in the dataset of prehashed passwords
@@ -40,16 +44,17 @@ def passhash_list(file):
     return prehashes
 
 
-# build a quantum oracle
+# build a quantum oracle.  This is where the magic happens!
 def oracle(circuit, target, qubits):
     ancil_bit = max(qubits)
     qubits_list = list(qubits)
-    target_bin = format(int(target, 16), f'0{len(target)*4}b')
+    target_bin = format(int(target, 16), f'0{len(target)*4}b') # turns the target from hex to binary
 
     for i, bit in enumerate(target_bin):
         qubit_index = i  # Map bit position to qubit index directly
         if bit == '0':
             circuit.x(qubits[qubit_index])
+    # Could this loop be causing the 0's issue?
 
     # apply gates and phase flip
     circuit.h(ancil_bit)
@@ -65,26 +70,29 @@ def oracle(circuit, target, qubits):
 
 def hashpassword(password):
     # hash a password to search
-    # targethash = hashlib.md5('password123'.encode()).hexdigest()
-    targethash = '123456'  # this was used for testing.
+    # targethash = hashlib.md5('password123'.encode()).hexdigest() # use this when we are actually using hashes
+    targethash = '123456'  # this was used for testing
 
     return targethash
 
 
+################
+# MAIN PROGRAM #
+################
 # Get the list of passwords and hash the test value
 passwords = passhash_list('rockyou_hashed.csv')
-test_hash = hashpassword('password123')
+test_hash = hashpassword('password123') # will always be 123456 while testing
 
 
 # Build the quantum circuit
-qubit_count = len(test_hash) * 4  # represented in hexadecimal qubits
-qubit_count = qubit_count + 1  # add ancillary qubit for oracle
+qubit_count = len(test_hash) * 4  # represented in hexadecimal qubits, so need 4 qubits per character
+qubit_count = qubit_count + 1  # add ancillary qubit for oracle/Grovers
 quantum_circuit = QuantumCircuit(qubit_count)
 
 quantum_circuit.h(range(qubit_count))  # hadamard gates for superposition
 
 
-# preparing ancillary qubit
+# preparing ancillary qubit for Grovers
 ancillary_bit = qubit_count - 1  # aligning index to the added bit
 quantum_circuit.x(ancillary_bit)
 quantum_circuit.h(ancillary_bit)
@@ -94,16 +102,19 @@ quantum_circuit.h(ancillary_bit)
 oracle(quantum_circuit, test_hash, range(qubit_count))
 quantum_circuit.h(range(qubit_count))  # quantum diffusion
 quantum_circuit.measure_all()
+# TODO: fix and experiment with this - would like a better diffusion method than just a hadamard gate
+
 
 # run the circuit
 print(f"raw:  {test_hash}")
-print(f"goal: {format(int(test_hash, 16), f'0{len(test_hash)*4}b')}")
+print(f"goal: {format(int(test_hash, 16), f'0{len(test_hash)*4}b')}") # shows the binary value for debugging
 for i in range(10):
     loaded_circuit = transpile(quantum_circuit, backend)
-    job = backend.run(loaded_circuit, shots=1024)
+    job = backend.run(loaded_circuit, shots=1024) # will fewer shots run faster?
     result = job.result()
     counts = result.get_counts(quantum_circuit)
 
     measured_state = max(counts, key=counts.get)
     print(f"res{i}: {measured_state[:24]}")
+# TODO: is there a good way to speed this up?
 
